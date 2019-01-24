@@ -12,12 +12,20 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+COMMIT_HASH = $(shell git rev-parse --short HEAD)
+RET = $(shell git describe --tags $(COMMIT_HASH) 1>&2 2> /dev/null; echo $$?)
+USER = $(shell whoami)
+
 ifeq ($(REGISTRY),)
-        REGISTRY = quay.io/external_storage/
+        REGISTRY = ogre0403/
 endif
-ifeq ($(VERSION),)
-        VERSION = latest
+
+ifeq ($(RET),0)
+    VERSION = $(shell git describe --tags $(COMMIT_HASH))
+else
+	VERSION = $(USER)-$(COMMIT_HASH)
 endif
+
 IMAGE = $(REGISTRY)nfs-client-provisioner:$(VERSION)
 IMAGE_ARM = $(REGISTRY)nfs-client-provisioner-arm:$(VERSION) 
 MUTABLE_IMAGE = $(REGISTRY)nfs-client-provisioner:latest
@@ -33,6 +41,10 @@ build:
 build_arm:
 	CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=7 go build -a -ldflags '-extldflags "-static"' -o docker/arm/nfs-client-provisioner ./cmd/nfs-client-provisioner 
 
+build-in-docker:
+	docker build -t $(MUTABLE_IMAGE) -f docker/build-in-docker/Dockerfile .
+	docker tag $(MUTABLE_IMAGE) $(IMAGE)
+
 image:
 	docker build -t $(MUTABLE_IMAGE) docker/x86_64
 	docker tag $(MUTABLE_IMAGE) $(IMAGE)
@@ -45,5 +57,5 @@ image_arm:
 push:
 	docker push $(IMAGE)
 	docker push $(MUTABLE_IMAGE)
-	docker push $(IMAGE_ARM)
-	docker push $(MUTABLE_IMAGE_ARM)
+#	docker push $(IMAGE_ARM)
+#	docker push $(MUTABLE_IMAGE_ARM)
