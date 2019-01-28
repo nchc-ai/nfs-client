@@ -14,7 +14,7 @@ spec:
       serviceAccountName: nfs-client-provisioner
       containers:
         - name: nfs-client-provisioner
-          image: ogre0403/nfs-client-provisioner:ogre0403-c222d3d
+          image: ogre0403/nfs-client-provisioner:v0.1
           volumeMounts:
             - name: nfs-client-root
               mountPath: /persistentvolumes
