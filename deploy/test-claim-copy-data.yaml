@@ -1,9 +1,12 @@
 kind: PersistentVolumeClaim
 apiVersion: v1
 metadata:
-  name: test-claim
-#  annotations:
+  name: test-claim-copy-data
+  annotations:
 #    volume.beta.kubernetes.io/storage-class: "managed-nfs-storage"
+    nchc.ai/copy-data: "true"
+    nchc.ai/src-pvc-namespace: "default"
+    nchc.ai/src-pvc-name: "test-claim"
 spec:
   accessModes:
     - ReadWriteMany

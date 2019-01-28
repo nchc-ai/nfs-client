@@ -21,6 +21,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -29,6 +30,7 @@ import (
 
 	"github.com/golang/glog"
 	"github.com/kubernetes-sigs/sig-storage-lib-external-provisioner/controller"
+	otiai10 "github.com/otiai10/copy"
 	"k8s.io/api/core/v1"
 	storage "k8s.io/api/storage/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -51,6 +53,12 @@ const (
 	mountPath = "/persistentvolumes"
 )
 
+const (
+	annCopyDate        = "nchc.ai/copy-data"
+	annSrcPVCNamespace = "nchc.ai/src-pvc-namespace"
+	annSrcPVCName      = "nchc.ai/src-pvc-name"
+)
+
 var _ controller.Provisioner = &nfsProvisioner{}
 
 func (p *nfsProvisioner) Provision(options controller.VolumeOptions) (*v1.PersistentVolume, error) {
@@ -70,6 +78,28 @@ func (p *nfsProvisioner) Provision(options controller.VolumeOptions) (*v1.Persis
 		return nil, errors.New("unable to create directory to provision new pv: " + err.Error())
 	}
 	os.Chmod(fullPath, 0777)
+
+	isCopyData, isCopyDataFound := options.PVC.Annotations[annCopyDate]
+	if isCopyDataFound == true && isCopyData == "true" {
+		srcPvcNS, srcPvcNsFound := options.PVC.Annotations[annSrcPVCNamespace]
+		srcPvcName, srcPvcNameFound := options.PVC.Annotations[annSrcPVCName]
+
+		if srcPvcNsFound == true && srcPvcNS != "" &&
+			srcPvcNameFound == true && srcPvcName != "" {
+			srcPVC, err := p.client.CoreV1().PersistentVolumeClaims(srcPvcNS).Get(srcPvcName, metav1.GetOptions{})
+			if err != nil {
+				glog.Warningf("Get pvc {%s/%s} fail: %s", srcPvcNS, srcPvcName, err.Error())
+			} else {
+				// todo: check src & dest folder name
+				srcPVName := strings.Join([]string{srcPvcNS, srcPvcName, srcPVC.Spec.VolumeName}, "-")
+				glog.Infof("Copy backing folder data from %s to %s", srcPVName, pvName)
+				err = p.copyDirectory(srcPVName, pvName)
+				if err != nil {
+					glog.Warningf("error copy dataset backing folder", err)
+				}
+			}
+		}
+	}
 
 	path := filepath.Join(p.path, pvName)
 
@@ -143,6 +173,11 @@ func (p *nfsProvisioner) getClassForVolume(pv *v1.PersistentVolume) (*storage.St
 		return nil, err
 	}
 	return class, nil
+}
+
+func (p *nfsProvisioner) copyDirectory(srcDir string, destDir string) (error) {
+	err := otiai10.Copy(path.Join(mountPath, srcDir), path.Join(mountPath, destDir))
+	return err
 }
 
 func main() {
