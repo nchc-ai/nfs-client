@@ -55,6 +55,7 @@ const (
 
 const (
 	annCopyDate        = "nchc.ai/copy-data"
+	annLinkDate        = "nchc.ai/link-data"
 	annSrcPVCNamespace = "nchc.ai/src-pvc-namespace"
 	annSrcPVCName      = "nchc.ai/src-pvc-name"
 )
@@ -74,13 +75,22 @@ func (p *nfsProvisioner) Provision(options controller.VolumeOptions) (*v1.Persis
 
 	fullPath := filepath.Join(mountPath, pvName)
 	glog.V(4).Infof("creating path %s", fullPath)
-	if err := os.MkdirAll(fullPath, 0777); err != nil {
-		return nil, errors.New("unable to create directory to provision new pv: " + err.Error())
-	}
-	os.Chmod(fullPath, 0777)
 
+	isLinkData, isLinkDataFound := options.PVC.Annotations[annLinkDate]
 	isCopyData, isCopyDataFound := options.PVC.Annotations[annCopyDate]
-	if isCopyDataFound == true && isCopyData == "true" {
+
+	islinkdata, _ := strconv.ParseBool(isLinkData)
+	iscopydata, _ := strconv.ParseBool(isCopyData)
+
+	// when we create symbolic link, no need to create folder
+	if !(isLinkDataFound == true && islinkdata == true) {
+		if err := os.MkdirAll(fullPath, 0777); err != nil {
+			return nil, errors.New("unable to create directory to provision new pv: " + err.Error())
+		}
+		os.Chmod(fullPath, 0777)
+	}
+
+	if (isCopyDataFound == true && iscopydata == true) || (isLinkDataFound == true && islinkdata == true) {
 		srcPvcNS, srcPvcNsFound := options.PVC.Annotations[annSrcPVCNamespace]
 		srcPvcName, srcPvcNameFound := options.PVC.Annotations[annSrcPVCName]
 
@@ -90,12 +100,22 @@ func (p *nfsProvisioner) Provision(options controller.VolumeOptions) (*v1.Persis
 			if err != nil {
 				glog.Warningf("Get pvc {%s/%s} fail: %s", srcPvcNS, srcPvcName, err.Error())
 			} else {
-				// todo: check src & dest folder name
 				srcPVName := strings.Join([]string{srcPvcNS, srcPvcName, srcPVC.Spec.VolumeName}, "-")
-				glog.Infof("Copy backing folder data from %s to %s", srcPVName, pvName)
-				err = p.copyDirectory(srcPVName, pvName)
-				if err != nil {
-					glog.Warningf("error copy dataset backing folder", err)
+
+				if islinkdata {
+					glog.Infof("Create symbolic link from %s to %s", srcPVName, pvName)
+					err = p.linkDirectory(srcPVName, pvName)
+					if err != nil {
+						glog.Warningf("error Create symbolic link: %s", err.Error())
+					}
+				}
+
+				if iscopydata {
+					glog.Infof("Copy backing folder data from %s to %s", srcPVName, pvName)
+					err = p.copyDirectory(srcPVName, pvName)
+					if err != nil {
+						glog.Warningf("error copy dataset backing folder: %s", err.Error())
+					}
 				}
 			}
 		}
@@ -128,12 +148,23 @@ func (p *nfsProvisioner) Provision(options controller.VolumeOptions) (*v1.Persis
 
 func (p *nfsProvisioner) Delete(volume *v1.PersistentVolume) error {
 	path := volume.Spec.PersistentVolumeSource.NFS.Path
-	pvName := filepath.Base(path)
-	oldPath := filepath.Join(mountPath, pvName)
+	oldPath := filepath.Base(path)
+
+	err := os.Chdir(mountPath)
+	if err != nil {
+		return err
+	}
+
 	if _, err := os.Stat(oldPath); os.IsNotExist(err) {
-		glog.Warningf("path %s does not exist, deletion skipped", oldPath)
+		glog.Warningf("path %s does not exist, deletion skipped", filepath.Join(mountPath, oldPath))
 		return nil
 	}
+
+	fileInfo, err := os.Lstat(oldPath)
+	if fileInfo.Mode()&os.ModeSymlink != 0 {
+		return os.RemoveAll(oldPath)
+	}
+
 	// Get the storage class for this volume.
 	storageClass, err := p.getClassForVolume(volume)
 	if err != nil {
@@ -153,8 +184,8 @@ func (p *nfsProvisioner) Delete(volume *v1.PersistentVolume) error {
 		}
 	}
 
-	archivePath := filepath.Join(mountPath, "archived-"+pvName)
-	glog.V(4).Infof("archiving path %s to %s", oldPath, archivePath)
+	archivePath := "archived-" + oldPath
+	glog.V(4).Infof("archiving path %s to %s", filepath.Join(mountPath, oldPath), filepath.Join(mountPath, archivePath))
 	return os.Rename(oldPath, archivePath)
 
 }
@@ -177,6 +208,15 @@ func (p *nfsProvisioner) getClassForVolume(pv *v1.PersistentVolume) (*storage.St
 
 func (p *nfsProvisioner) copyDirectory(srcDir string, destDir string) (error) {
 	err := otiai10.Copy(path.Join(mountPath, srcDir), path.Join(mountPath, destDir))
+	return err
+}
+
+func (p *nfsProvisioner) linkDirectory(srcDir string, destDir string) (error) {
+	err := os.Chdir(mountPath)
+	if err != nil {
+		return err
+	}
+	err = os.Symlink(srcDir, destDir)
 	return err
 }
 
