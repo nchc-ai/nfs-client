@@ -155,12 +155,13 @@ func (p *nfsProvisioner) Delete(volume *v1.PersistentVolume) error {
 		return err
 	}
 
-	if _, err := os.Stat(oldPath); os.IsNotExist(err) {
+	var fileInfo os.FileInfo
+
+	if fileInfo, err = os.Lstat(oldPath); os.IsNotExist(err) {
 		glog.Warningf("path %s does not exist, deletion skipped", filepath.Join(mountPath, oldPath))
 		return nil
 	}
 
-	fileInfo, err := os.Lstat(oldPath)
 	if fileInfo.Mode()&os.ModeSymlink != 0 {
 		return os.RemoveAll(oldPath)
 	}

@@ -1,4 +1,4 @@
-FROM golang:1.11.4
+FROM golang:1.15.2
 
 # workaround for glide fetch Gitlab private repo
 #RUN mkdir /root/.ssh
@@ -18,16 +18,15 @@ WORKDIR /nfs-client
 COPY go.mod .
 COPY go.sum .
 
-# Get dependancies - will also be cached if we won't change mod/sum
-RUN go mod download
 
 COPY . .
+RUN if [ ! -d "/nfs-client/vendor" ]; then  go mod vendor; fi
 
 RUN make build
 
 
 
-FROM alpine:3.6
+FROM alpine:3.7
 RUN apk update --no-cache && apk add ca-certificates
 COPY --from=0 /nfs-client/docker/x86_64/nfs-client-provisioner /nfs-client-provisioner
 ENTRYPOINT ["/nfs-client-provisioner"]
