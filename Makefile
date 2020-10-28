@@ -13,23 +13,33 @@
 # limitations under the License.
 
 COMMIT_HASH = $(shell git rev-parse --short HEAD)
-RET = $(shell git describe --tags $(COMMIT_HASH) 1>&2 2> /dev/null; echo $$?)
+BRANCH_NAME = $(shell git rev-parse --abbrev-ref HEAD)
+RET = $(shell git describe --contains $(COMMIT_HASH) 1>&2 2> /dev/null; echo $$?)
 USER = $(shell whoami)
+IS_DIRTY_CONDITION = $(shell git diff-index --name-status HEAD | wc -l)
 
-ifeq ($(REGISTRY),)
-        REGISTRY = ogre0403/
-endif
-
-ifeq ($(RET),0)
-    VERSION = $(shell git describe --tags $(COMMIT_HASH))
+ifeq ($(strip $(IS_DIRTY_CONDITION)), 0)
+	# if clean,  IS_DIRTY tag is not required
+	IS_DIRTY = $(shell echo "")
 else
-	VERSION = $(USER)-$(COMMIT_HASH)
+	# add dirty tag if repo is modified
+	IS_DIRTY = $(shell echo "-dirty")
 endif
 
-IMAGE = $(REGISTRY)nfs-client-provisioner:$(VERSION)
-IMAGE_ARM = $(REGISTRY)nfs-client-provisioner-arm:$(VERSION) 
-MUTABLE_IMAGE = $(REGISTRY)nfs-client-provisioner:latest
-MUTABLE_IMAGE_ARM = $(REGISTRY)nfs-client-provisioner-arm:latest
+# Image Tag rule
+# 1. if repo in non-master branch, use branch name as image tag
+# 2. if repo in a master branch, but there is no tag, use <username>-<commit-hash>
+# 2. if repo in a master branch, and there is tag, use tag
+ifeq ($(BRANCH_NAME), master)
+	ifeq ($(RET),0)
+		TAG = $(shell git describe --contains $(COMMIT_HASH))$(IS_DIRTY)
+	else
+		TAG = $(USER)-$(COMMIT_HASH)$(IS_DIRTY)
+	endif
+else
+	TAG = $(BRANCH_NAME)$(IS_DIRTY)
+endif
+
 
 all: build image build_arm image_arm 
 
@@ -38,24 +48,14 @@ container: build image build_arm image_arm
 build:
 	CGO_ENABLED=0 GOOS=linux go build -a -ldflags '-extldflags "-static"' -o docker/x86_64/nfs-client-provisioner ./cmd/nfs-client-provisioner
 
-build_arm:
-	CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=7 go build -a -ldflags '-extldflags "-static"' -o docker/arm/nfs-client-provisioner ./cmd/nfs-client-provisioner 
-
 build-in-docker:
-	docker build -t $(MUTABLE_IMAGE) -f docker/build-in-docker/Dockerfile .
-	docker tag $(MUTABLE_IMAGE) $(IMAGE)
+	docker build -t ogre0403/nfs-client-provisioner:$(TAG) -f docker/build-in-docker/Dockerfile .
+	docker tag ogre0403/nfs-client-provisioner:$(TAG) registry.gitlab.com/nchc-ai/aitrain-deploy/nfs-client-provisioner:$(TAG)
+
 
 image:
 	docker build -t $(MUTABLE_IMAGE) docker/x86_64
 	docker tag $(MUTABLE_IMAGE) $(IMAGE)
 
-image_arm:
-	docker run --rm --privileged multiarch/qemu-user-static:register --reset
-	docker build -t $(MUTABLE_IMAGE_ARM) docker/arm
-	docker tag $(MUTABLE_IMAGE_ARM) $(IMAGE_ARM)
 
-push:
-	docker push $(IMAGE)
-	docker push $(MUTABLE_IMAGE)
-#	docker push $(IMAGE_ARM)
-#	docker push $(MUTABLE_IMAGE_ARM)
+
