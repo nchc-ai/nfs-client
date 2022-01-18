@@ -17,6 +17,7 @@ limitations under the License.
 package main
 
 import (
+	"context"
 	"errors"
 	"flag"
 	"fmt"
@@ -29,12 +30,12 @@ import (
 	"k8s.io/kubernetes/pkg/apis/core/v1/helper"
 
 	"github.com/golang/glog"
-	"github.com/kubernetes-sigs/sig-storage-lib-external-provisioner/controller"
+	"sigs.k8s.io/sig-storage-lib-external-provisioner/v6/controller"
+
 	otiai10 "github.com/otiai10/copy"
 	"k8s.io/api/core/v1"
 	storage "k8s.io/api/storage/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 )
@@ -62,9 +63,9 @@ const (
 
 var _ controller.Provisioner = &nfsProvisioner{}
 
-func (p *nfsProvisioner) Provision(options controller.VolumeOptions) (*v1.PersistentVolume, error) {
+func (p *nfsProvisioner) Provision(ctx context.Context, options controller.ProvisionOptions) (*v1.PersistentVolume, controller.ProvisioningState,error) {
 	if options.PVC.Spec.Selector != nil {
-		return nil, fmt.Errorf("claim Selector is not supported")
+		return nil,controller.ProvisioningFinished, fmt.Errorf("claim Selector is not supported")
 	}
 	glog.V(4).Infof("nfs provisioner: VolumeOptions %v", options)
 
@@ -85,7 +86,7 @@ func (p *nfsProvisioner) Provision(options controller.VolumeOptions) (*v1.Persis
 	// when we create symbolic link, no need to create folder
 	if !(isLinkDataFound == true && islinkdata == true) {
 		if err := os.MkdirAll(fullPath, 0777); err != nil {
-			return nil, errors.New("unable to create directory to provision new pv: " + err.Error())
+			return nil, controller.ProvisioningFinished, errors.New("unable to create directory to provision new pv: " + err.Error())
 		}
 		os.Chmod(fullPath, 0777)
 	}
@@ -96,7 +97,7 @@ func (p *nfsProvisioner) Provision(options controller.VolumeOptions) (*v1.Persis
 
 		if srcPvcNsFound == true && srcPvcNS != "" &&
 			srcPvcNameFound == true && srcPvcName != "" {
-			srcPVC, err := p.client.CoreV1().PersistentVolumeClaims(srcPvcNS).Get(srcPvcName, metav1.GetOptions{})
+			srcPVC, err := p.client.CoreV1().PersistentVolumeClaims(srcPvcNS).Get(ctx, srcPvcName, metav1.GetOptions{})
 			if err != nil {
 				glog.Warningf("Get pvc {%s/%s} fail: %s", srcPvcNS, srcPvcName, err.Error())
 			} else {
@@ -128,9 +129,9 @@ func (p *nfsProvisioner) Provision(options controller.VolumeOptions) (*v1.Persis
 			Name: options.PVName,
 		},
 		Spec: v1.PersistentVolumeSpec{
-			PersistentVolumeReclaimPolicy: options.PersistentVolumeReclaimPolicy,
+			PersistentVolumeReclaimPolicy: *options.StorageClass.ReclaimPolicy,
 			AccessModes:                   options.PVC.Spec.AccessModes,
-			MountOptions:                  options.MountOptions,
+			MountOptions:                  options.StorageClass.MountOptions,
 			Capacity: v1.ResourceList{
 				v1.ResourceName(v1.ResourceStorage): options.PVC.Spec.Resources.Requests[v1.ResourceName(v1.ResourceStorage)],
 			},
@@ -143,10 +144,10 @@ func (p *nfsProvisioner) Provision(options controller.VolumeOptions) (*v1.Persis
 			},
 		},
 	}
-	return pv, nil
+	return pv, controller.ProvisioningFinished,nil
 }
 
-func (p *nfsProvisioner) Delete(volume *v1.PersistentVolume) error {
+func (p *nfsProvisioner) Delete(ctx context.Context, volume *v1.PersistentVolume) error {
 	path := volume.Spec.PersistentVolumeSource.NFS.Path
 	oldPath := filepath.Base(path)
 
@@ -167,7 +168,7 @@ func (p *nfsProvisioner) Delete(volume *v1.PersistentVolume) error {
 	}
 
 	// Get the storage class for this volume.
-	storageClass, err := p.getClassForVolume(volume)
+	storageClass, err := p.getClassForVolume(ctx, volume)
 	if err != nil {
 		return err
 	}
@@ -192,7 +193,7 @@ func (p *nfsProvisioner) Delete(volume *v1.PersistentVolume) error {
 }
 
 // getClassForVolume returns StorageClass
-func (p *nfsProvisioner) getClassForVolume(pv *v1.PersistentVolume) (*storage.StorageClass, error) {
+func (p *nfsProvisioner) getClassForVolume(ctx context.Context, pv *v1.PersistentVolume) (*storage.StorageClass, error) {
 	if p.client == nil {
 		return nil, fmt.Errorf("Cannot get kube client")
 	}
@@ -200,7 +201,7 @@ func (p *nfsProvisioner) getClassForVolume(pv *v1.PersistentVolume) (*storage.St
 	if className == "" {
 		return nil, fmt.Errorf("Volume has no storage class")
 	}
-	class, err := p.client.StorageV1().StorageClasses().Get(className, metav1.GetOptions{})
+	class, err := p.client.StorageV1().StorageClasses().Get(ctx, className, metav1.GetOptions{})
 	if err != nil {
 		return nil, err
 	}
@@ -264,5 +265,5 @@ func main() {
 	// Start the provision controller which will dynamically provision efs NFS
 	// PVs
 	pc := controller.NewProvisionController(clientset, provisionerName, clientNFSProvisioner, serverVersion.GitVersion)
-	pc.Run(wait.NeverStop)
+	pc.Run(context.Background())
 }

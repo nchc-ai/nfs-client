@@ -1,4 +1,4 @@
-FROM golang:1.15.2
+FROM golang:1.16-alpine
 
 # workaround for glide fetch Gitlab private repo
 #RUN mkdir /root/.ssh
@@ -8,7 +8,7 @@ FROM golang:1.15.2
 #RUN git config --global url."git@gitlab.com:nchc-ai/".insteadOf "https://gitlab.com/nchc-ai/"
 
 
-RUN mkdir /nfs-client
+RUN apk update && apk add make git && mkdir /nfs-client
 WORKDIR /nfs-client
 
 # Using go mod download to speed up Golang Docker builds
@@ -26,7 +26,7 @@ RUN make build
 
 
 
-FROM alpine:3.7
+FROM alpine:3.13
 RUN apk update --no-cache && apk add ca-certificates
 COPY --from=0 /nfs-client/docker/x86_64/nfs-client-provisioner /nfs-client-provisioner
 ENTRYPOINT ["/nfs-client-provisioner"]
