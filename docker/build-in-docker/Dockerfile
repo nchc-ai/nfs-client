@@ -1,4 +1,4 @@
-FROM golang:1.16-alpine
+FROM golang:1.23-alpine
 
 # workaround for glide fetch Gitlab private repo
 #RUN mkdir /root/.ssh

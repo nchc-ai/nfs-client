@@ -27,13 +27,11 @@ import (
 	"strconv"
 	"strings"
 
-	"k8s.io/kubernetes/pkg/apis/core/v1/helper"
-
 	"github.com/golang/glog"
 	"sigs.k8s.io/sig-storage-lib-external-provisioner/v6/controller"
 
 	otiai10 "github.com/otiai10/copy"
-	"k8s.io/api/core/v1"
+	v1 "k8s.io/api/core/v1"
 	storage "k8s.io/api/storage/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
@@ -63,9 +61,9 @@ const (
 
 var _ controller.Provisioner = &nfsProvisioner{}
 
-func (p *nfsProvisioner) Provision(ctx context.Context, options controller.ProvisionOptions) (*v1.PersistentVolume, controller.ProvisioningState,error) {
+func (p *nfsProvisioner) Provision(ctx context.Context, options controller.ProvisionOptions) (*v1.PersistentVolume, controller.ProvisioningState, error) {
 	if options.PVC.Spec.Selector != nil {
-		return nil,controller.ProvisioningFinished, fmt.Errorf("claim Selector is not supported")
+		return nil, controller.ProvisioningFinished, fmt.Errorf("claim Selector is not supported")
 	}
 	glog.V(4).Infof("nfs provisioner: VolumeOptions %v", options)
 
@@ -144,7 +142,7 @@ func (p *nfsProvisioner) Provision(ctx context.Context, options controller.Provi
 			},
 		},
 	}
-	return pv, controller.ProvisioningFinished,nil
+	return pv, controller.ProvisioningFinished, nil
 }
 
 func (p *nfsProvisioner) Delete(ctx context.Context, volume *v1.PersistentVolume) error {
@@ -197,7 +195,7 @@ func (p *nfsProvisioner) getClassForVolume(ctx context.Context, pv *v1.Persisten
 	if p.client == nil {
 		return nil, fmt.Errorf("Cannot get kube client")
 	}
-	className := helper.GetPersistentVolumeClass(pv)
+	className := pv.Spec.StorageClassName
 	if className == "" {
 		return nil, fmt.Errorf("Volume has no storage class")
 	}
@@ -208,12 +206,12 @@ func (p *nfsProvisioner) getClassForVolume(ctx context.Context, pv *v1.Persisten
 	return class, nil
 }
 
-func (p *nfsProvisioner) copyDirectory(srcDir string, destDir string) (error) {
+func (p *nfsProvisioner) copyDirectory(srcDir string, destDir string) error {
 	err := otiai10.Copy(path.Join(mountPath, srcDir), path.Join(mountPath, destDir))
 	return err
 }
 
-func (p *nfsProvisioner) linkDirectory(srcDir string, destDir string) (error) {
+func (p *nfsProvisioner) linkDirectory(srcDir string, destDir string) error {
 	err := os.Chdir(mountPath)
 	if err != nil {
 		return err
