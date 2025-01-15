@@ -17,6 +17,8 @@ BRANCH_NAME = $(shell git rev-parse --abbrev-ref HEAD)
 RET = $(shell git describe --contains $(COMMIT_HASH) 1>&2 2> /dev/null; echo $$?)
 USER = $(shell whoami)
 IS_DIRTY_CONDITION = $(shell git diff-index --name-status HEAD | wc -l)
+REPO = nchc-ai
+IMAGE = nfs-client-provisioner
 
 ifeq ($(strip $(IS_DIRTY_CONDITION)), 0)
 	# if clean,  IS_DIRTY tag is not required
@@ -41,21 +43,12 @@ else
 endif
 
 
-all: build image build_arm image_arm 
-
-container: build image build_arm image_arm
 
 build:
 	CGO_ENABLED=0 GOOS=linux go build -a -ldflags '-extldflags "-static"' -o docker/x86_64/nfs-client-provisioner ./cmd/nfs-client-provisioner
 
-build-in-docker:
-	docker build -t ogre0403/nfs-client-provisioner:$(TAG) -f docker/build-in-docker/Dockerfile .
-	docker tag ogre0403/nfs-client-provisioner:$(TAG) registry.gitlab.com/nchc-ai/aitrain-deploy/nfs-client-provisioner:$(TAG)
-
-
 image:
-	docker build -t $(MUTABLE_IMAGE) docker/x86_64
-	docker tag $(MUTABLE_IMAGE) $(IMAGE)
+	docker build -t $(REPO)/$(IMAGE):$(TAG) -f docker/build-in-docker/Dockerfile .
 
 
 
