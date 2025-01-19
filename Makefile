@@ -17,7 +17,7 @@ BRANCH_NAME = $(shell git rev-parse --abbrev-ref HEAD)
 RET = $(shell git describe --contains $(COMMIT_HASH) 1>&2 2> /dev/null; echo $$?)
 USER = $(shell whoami)
 IS_DIRTY_CONDITION = $(shell git diff-index --name-status HEAD | wc -l)
-REPO = nchc-ai
+REPO = ghcr.io/nchc-ai
 IMAGE = nfs-client-provisioner
 
 ifeq ($(strip $(IS_DIRTY_CONDITION)), 0)
