@@ -28,7 +28,7 @@ import (
 	"strings"
 
 	"github.com/golang/glog"
-	"sigs.k8s.io/sig-storage-lib-external-provisioner/v6/controller"
+	"sigs.k8s.io/sig-storage-lib-external-provisioner/v11/controller"
 
 	otiai10 "github.com/otiai10/copy"
 	v1 "k8s.io/api/core/v1"
@@ -248,13 +248,6 @@ func main() {
 		glog.Fatalf("Failed to create client: %v", err)
 	}
 
-	// The controller needs to know what the server version is because out-of-tree
-	// provisioners aren't officially supported until 1.5
-	serverVersion, err := clientset.Discovery().ServerVersion()
-	if err != nil {
-		glog.Fatalf("Error getting server version: %v", err)
-	}
-
 	clientNFSProvisioner := &nfsProvisioner{
 		client: clientset,
 		server: server,
@@ -262,6 +255,6 @@ func main() {
 	}
 	// Start the provision controller which will dynamically provision efs NFS
 	// PVs
-	pc := controller.NewProvisionController(clientset, provisionerName, clientNFSProvisioner, serverVersion.GitVersion)
+	pc := controller.NewProvisionController(context.Background(), clientset, provisionerName, clientNFSProvisioner)
 	pc.Run(context.Background())
 }
